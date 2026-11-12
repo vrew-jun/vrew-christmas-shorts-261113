@@ -1542,7 +1542,9 @@ window.__go=function(i){go(i,i>idx?1:-1)};window.__toast=toast;window.__slideId=
 /* ----- 갤러리: 캐릭터시트·완성 영상을 올리고 함께 보기 (Cloudflare Worker + R2) ----- */
 (function(){
 'use strict';
-var API='https://christmas-shorts-gallery.gottkf12087.workers.dev';
+/* 갤러리 서버(Cloudflare Worker) 주소. 비어 있으면 갤러리 올리기·보기가 꺼져요.
+   예전 주소(원본 교안 작성자 서버): https://christmas-shorts-gallery.gottkf12087.workers.dev */
+var API='';
 var SLIDE={sheet:'s-sheets',video:'s-videos'};
 var toast=function(m){if(window.__toast)window.__toast(m)};
 var $=function(s,r){return (r||document).querySelector(s)};
@@ -1564,6 +1566,7 @@ function render(kind,items){
   }).join('');
 }
 function load(kind){
+  if(!API)return Promise.resolve();
   return fetch(API+'/api/list?kind='+kind).then(function(r){return r.json()}).then(function(j){if(j&&j.ok)render(kind,j.items)}).catch(function(){});
 }
 
@@ -1574,6 +1577,7 @@ $$('[data-gallery]').forEach(function(box){
   fileIn.addEventListener('change',function(){label.textContent=fileIn.files[0]?fileIn.files[0].name:'파일 고르기'});
   form.addEventListener('submit',function(e){
     e.preventDefault();
+    if(!API){toast('지금은 갤러리에 올릴 수 없어요<br><small>강사님 안내를 따라 주세요</small>');return}
     var f=fileIn.files[0];if(!f){toast('파일을 먼저 골라 주세요');return}
     var max=kind==='sheet'?15:95;if(f.size>max*1048576){toast('파일이 너무 커요<br><small>'+max+'MB 이하만 올릴 수 있어요</small>');return}
     try{localStorage.setItem(NAME_KEY,form.name.value.trim())}catch(e){}
