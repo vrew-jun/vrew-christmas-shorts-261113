@@ -755,16 +755,18 @@ h2 em,#s-flow h2 em{color:var(--red)!important}
   <section class="slide" data-trans="zoom" id="s-sheets">
     <div class="eyebrow" data-in>GALLERY · CHARACTER SHEETS</div>
     <h2 data-in>캐릭터시트 <em>갤러리</em></h2>
-    <div class="gl-wrap" data-gallery="sheet">
-      <form class="gl-up" data-in>
-        <h4>내 캐릭터시트 올리기</h4>
-        <label>이름 · 별명 <input name="name" maxlength="30" placeholder="예) 3모둠 김쌤" required></label>
-        <label>한 줄 소개 <input name="caption" maxlength="80" placeholder="예) 칼퇴근 쿠폰을 받은 루돌프"></label>
-        <label class="gl-file"><input type="file" name="file" accept="image/png,image/jpeg,image/webp" required><span>파일 고르기</span><small>PNG·JPG · 15MB 이하</small></label>
-        <button class="btn sm" type="submit">올리기 ↑</button>
-        <div class="gl-bar"><i></i></div>
-      </form>
-      <div class="gl-grid" aria-live="polite"><p class="gl-empty">아직 올라온 작품이 없어요. 첫 번째 주인공이 되어 주세요!</p></div>
+    <div class="pd-wrap">
+      <div class="pd-side" data-in>
+        <h4>패들렛에 올려요</h4>
+        <ol>
+          <li><b>‘캐릭터시트’ 칸</b> 아래 <b>+</b> 누르기</li>
+          <li>이름·별명을 쓰고 캐릭터시트 그림 올리기 <small>(PNG·JPG)</small></li>
+          <li><b>게시</b> 누르면 바로 보여요</li>
+        </ol>
+        <a class="btn sm padlink" href="#" target="_blank" rel="noopener">패들렛 새 탭으로 열기 ↗</a>
+        <small>로그인하지 않아도 올릴 수 있어요</small>
+      </div>
+      <div class="pd-frame" data-in><p class="pd-fallback">패들렛이 여기 안 보이면<br>왼쪽 ‘패들렛 새 탭으로 열기’를 눌러 주세요</p><iframe data-padlet title="크리스마스 선물 쇼츠 갤러리 패들렛" allow="camera;microphone;geolocation;display-capture;clipboard-write"></iframe></div>
     </div>
   </section>
 
@@ -1030,16 +1032,18 @@ h2 em,#s-flow h2 em{color:var(--red)!important}
   <section class="slide" data-trans="zoom" id="s-videos">
     <div class="eyebrow" data-in>GALLERY · FINAL CUT</div>
     <h2 data-in>완성 영상 <em>상영회</em></h2>
-    <div class="gl-wrap" data-gallery="video">
-      <form class="gl-up" data-in>
-        <h4>내 완성 영상 올리기</h4>
-        <label>이름 · 별명 <input name="name" maxlength="30" placeholder="예) 3모둠 김쌤" required></label>
-        <label>한 줄 소개 <input name="caption" maxlength="80" placeholder="예) 칼퇴근 쿠폰을 받은 루돌프"></label>
-        <label class="gl-file"><input type="file" name="file" accept="video/mp4,video/webm,video/quicktime" required><span>파일 고르기</span><small>MP4 · 95MB 이하</small></label>
-        <button class="btn sm" type="submit">올리기 ↑</button>
-        <div class="gl-bar"><i></i></div>
-      </form>
-      <div class="gl-grid" aria-live="polite"><p class="gl-empty">아직 올라온 작품이 없어요. 첫 번째 주인공이 되어 주세요!</p></div>
+    <div class="pd-wrap">
+      <div class="pd-side" data-in>
+        <h4>패들렛에 올려요</h4>
+        <ol>
+          <li><b>‘완성 영상’ 칸</b> 아래 <b>+</b> 누르기</li>
+          <li>이름·별명을 쓰고 완성 영상 올리기 <small>(MP4)</small></li>
+          <li><b>게시</b> 누르면 바로 보여요</li>
+        </ol>
+        <a class="btn sm padlink" href="#" target="_blank" rel="noopener">패들렛 새 탭으로 열기 ↗</a>
+        <small>로그인하지 않아도 올릴 수 있어요</small>
+      </div>
+      <div class="pd-frame" data-in><p class="pd-fallback">패들렛이 여기 안 보이면<br>왼쪽 ‘패들렛 새 탭으로 열기’를 눌러 주세요</p><iframe data-padlet title="크리스마스 선물 쇼츠 갤러리 패들렛" allow="camera;microphone;geolocation;display-capture;clipboard-write"></iframe></div>
     </div>
   </section>
 
@@ -1093,7 +1097,7 @@ h2 em,#s-flow h2 em{color:var(--red)!important}
 (function(){
 'use strict';
 /* 교육 설정: 패들렛·만족도 조사 주소를 넣으면 버튼이 살아나요. 비어 있으면 '강사에게 링크 받기' 안내가 떠요. */
-var PADLET='https://padlet.com/gottkf12087/2-s024ydncaeoz9kpvtbkk';
+var PADLET='https://padlet.com/v6x/padlet-s025dt5pxof4v71wt18g';var PADLET_EMBED='https://padlet.com/embed/s025dt5pxof4v71wt18g';
 var SURVEY='https://forms.gle/5CTow6er2RtV3QmX9';
 var CASES=[
  ['🎁','트리 아래 선물 상자가 혼자 반짝이며 들썩인다.'],
@@ -1439,6 +1443,7 @@ function enter(s,first){
   if(s._viewer){s._viewer.init();setTimeout(layoutAll,60)}
   if(s.id==='s-script'||s.id==='s-image')prefill();
   syncStory(s.id);
+  if(s.id==='s-sheets'||s.id==='s-videos'){var pf=$('iframe[data-padlet]',s);if(pf&&!pf.getAttribute('src')&&PADLET_EMBED)pf.src=PADLET_EMBED}
   var hl=$$('h2 .l',s);
   if(!reduce&&hl.length){if(LITE)gsap.fromTo(hl,{opacity:0,y:24},{opacity:1,y:0,duration:.5,stagger:.03,ease:'power2.out',delay:first?.1:.25});else gsap.fromTo(hl,{opacity:0,y:46,filter:'blur(14px)'},{opacity:1,y:0,filter:'blur(0px)',duration:.9,stagger:.045,ease:'power3.out',delay:first?.2:.55,clearProps:'filter'})}
   var ins=$$('[data-in]',s);
@@ -1722,6 +1727,17 @@ h2{max-width:1460px}#bg .moon{right:120px;top:100px;width:110px;height:110px;box
 
 </style>
 <style id="vrew-versions">
+.pd-wrap{margin-top:26px;display:flex;gap:32px;flex:1;min-height:0}
+.pd-side{width:440px;flex:none;display:flex;flex-direction:column;gap:16px;padding:26px 28px;border:1px solid var(--lav);border-radius:16px;background:rgba(15,30,60,.75);align-self:flex-start}
+.pd-side h4{font-size:34px;color:var(--orange-2);margin:0}
+.pd-side ol{margin:0;padding-left:1.2em;font-size:27px;line-height:1.5;display:flex;flex-direction:column;gap:8px}
+.pd-side ol small{font-size:21px;color:var(--lav)}
+.pd-side b{color:#ffb3c0}
+.pd-side>small{font-size:21px;color:var(--lav)}
+.pd-side .btn{font-size:26px!important;padding:12px 22px!important;text-decoration:none;align-self:flex-start}
+.pd-frame{position:relative;flex:1;min-width:0;border-radius:16px;overflow:hidden;border:1px solid var(--lav);background:rgba(11,20,38,.7)}
+.pd-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:0;z-index:1}
+.pd-fallback{position:absolute;inset:0;margin:0;display:grid;place-items:center;font-size:28px;line-height:1.5;color:var(--lav);text-align:center;padding:40px}
 .sv{display:flex;flex-direction:column;gap:8px;margin-top:auto}
 .sv label{font-size:26px;font-weight:700;color:var(--orange-2)}
 .sv label small{font-size:21px;font-weight:500;color:var(--lav);margin-left:8px}
