@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<script>var QM_BASE="./";</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>밤 불빛 보케</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b1222}</style>
+</head>
+<body>
+<!-- 쿼카 모션랩 · 밤 불빛 보케 (Night Bokeh) -->
+<div id="qm-bg-bokeh-night" style="width:100%;max-width:calc(100vh * 1.7778)"></div>
+<script>
+(function () {
+  // ① 설정: 여기만 고치면 됩니다
+  const CONFIG = {
+    speed: 1,          // 속도 (1 = 기본, 2 = 두 배)
+    bg: '#0b1222',     // 배경색 ('transparent'로 바꾸면 투명)
+    colors: ['#ffffff', '#e9edf5', '#f3ede2', '#e8d5d8', '#8a96ae', '#1f3460', '#6e1a2f', '#070b16'],   // 색 8개: 밝은 색 → 진한 색 ([5] 포인트 색, [7] 글자색)
+    live: true,        // 실제 마우스·스크롤에 반응 (false면 연출대로만 움직임)
+    ratio: '16 / 9'    // 화면 비율 (가로 / 세로)
+  };
+
+  // ② 모션: 밤 불빛 보케
+  function gcRGB(color) {
+    return /^#[0-9a-f]{6}$/i.test(color) ? [1, 3, 5].map(i => parseInt(color.slice(i, i + 2), 16) / 255) : [0, 0, 0];
+  }
+
+  function gcMix(a, b, p) {
+    const x = gcRGB(a), y = gcRGB(b);
+    return x.map((v, i) => v + (y[i] - v) * p);
+  }
+
+  function gcStage(api, scale, loop) {
+    const W = api.W, H = api.H;
+    const k = Math.min(2, window.devicePixelRatio || 1, 2400 / Math.max(W, H)) * (scale || 1);
+    const cv = document.createElement('canvas');
+    cv.width = Math.max(2, Math.round(W * k));
+    cv.height = Math.max(2, Math.round(H * k));
+    cv.style.cssText = `position:absolute;left:0;top:0;width:${W}px;height:${H}px;`;
+    api.root.appendChild(cv);
+    const gl = cv.getContext('webgl', { preserveDrawingBuffer: true, premultipliedAlpha: true, alpha: true, antialias: true });
+    const none = { set() {}, buf() {}, draw() {} };
+    const st = { cv: cv, gl: gl, k: cv.width / W, make: () => none, screen: () => none, begin() {}, dispose() {} };
+    if (!gl) return st;
+    const hp = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT);
+    const common = [
+      hp && hp.precision > 0 ? 'precision highp float;' : 'precision mediump float;',
+      'uniform vec2 uSize;',
+      'uniform float uK, uT, uLoop, uClear;',
+      '#define TAU 6.2831853',
+      '#define PI 3.14159265',
+      'float hash(vec2 p) { vec3 q = fract(vec3(p.xyx) * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }',
+      'float hash3(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }',
+      'float noise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);',
+      '  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y); }',
+      'float turn(float n) { return TAU * n * uT / uLoop; }',
+      ''
+    ].join('\n');
+    const vhead = common + 'vec4 clip(vec2 s) { return vec4(s.x / uSize.x * 2.0 - 1.0, 1.0 - s.y / uSize.y * 2.0, 0.0, 1.0); }\n';
+    const fhead = common + 'vec2 px() { return vec2(gl_FragCoord.x / uK, uSize.y - gl_FragCoord.y / uK); }\nfloat dither() { return (hash(gl_FragCoord.xy) - 0.5) / 255.0; }\n';
+    const compile = (type, text) => {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, text);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.warn(gl.getShaderInfoLog(s));
+      return s;
+    };
+    st.make = (vs, fs) => {
+      const prog = gl.createProgram();
+      gl.attachShader(prog, compile(gl.VERTEX_SHADER, vhead + vs));
+      gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fhead + fs));
+      gl.linkProgram(prog);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { console.warn(gl.getProgramInfoLog(prog)); return none; }
+      const spots = {}, bufs = [];
+      const where = name => name in spots ? spots[name] : (spots[name] = gl.getUniformLocation(prog, name));
+      const p = {
+        // uniform 값 넣기: 숫자 하나, [2~4개], vec4 묶음(4의 배수), kind = 'm3'(3×3 행렬) 또는 3(vec3 묶음)
+        set(name, v, kind) {
+          const l = where(name);
+          if (!l) return;
+          gl.useProgram(prog);
+          if (typeof v === 'number') gl.uniform1f(l, v);
+          else if (kind === 'm3') gl.uniformMatrix3fv(l, false, v);
+          else if (kind === 3 || v.length === 3) gl.uniform3fv(l, v);
+          else if (v.length === 2) gl.uniform2fv(l, v);
+          else gl.uniform4fv(l, v);
+        },
+        // 점마다 다른 값(attribute) 넣기: size = 한 점에 든 숫자 수(1~4)
+        buf(name, data, size) {
+          const loc = gl.getAttribLocation(prog, name);
+          if (loc < 0) return;
+          const b = gl.createBuffer();
+          gl.bindBuffer(gl.ARRAY_BUFFER, b);
+          gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+          bufs.push([loc, b, size]);
+        },
+        // 그리기: mode = gl.POINTS | gl.TRIANGLES, blend = 'add'(빛 더하기) | 'over'(덮기) | 없음
+        draw(mode, count, blend) {
+          if (gl.isContextLost()) return;
+          gl.useProgram(prog);
+          bufs.forEach(([loc, b, size]) => { gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0); });
+          if (blend) { gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, blend === 'add' ? gl.ONE : gl.ONE_MINUS_SRC_ALPHA); } else gl.disable(gl.BLEND);
+          gl.drawArrays(mode, 0, count);
+          bufs.forEach(([loc]) => gl.disableVertexAttribArray(loc));
+        }
+      };
+      p.set('uSize', [W, H]);
+      p.set('uK', st.k);
+      p.set('uClear', api.clear ? 1 : 0);
+      p.set('uLoop', loop || 10);
+      return p;
+    };
+    // 화면 가득 한 장(조각 셰이더만): draw(blend)
+    st.screen = fs => {
+      const p = st.make('attribute vec2 aQ; void main() { gl_Position = vec4(aQ, 0.0, 1.0); }', fs), d = p.draw;
+      p.buf('aQ', new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), 2);
+      p.draw = blend => d(gl.TRIANGLES, 6, blend);
+      return p;
+    };
+    // 한 장면 시작: 화면을 투명하게 비움
+    st.begin = () => {
+      if (gl.isContextLost()) return;
+      gl.viewport(0, 0, cv.width, cv.height);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    };
+    // 다시 만들기 전에 정리 (엔진이 frame.dispose로 부름)
+    st.dispose = () => { const x = gl.getExtension('WEBGL_lose_context'); if (x) x.loseContext(); };
+    return st;
+  }
+  function bgBokehNight(api) {
+    const LIGHTS = 34;      // 불빛의 수 (최대 40)
+    const BLUR = 1.15;         // 흐림 세기 (1 = 기본, 크면 빛망울이 커져요)
+    const GLOW = 0.9;         // 밝기 (1 = 기본)
+    const LOOP = 20;        // 한 바퀴 길이(초): 이 시간에 초점이 먼 곳까지 갔다가 돌아와요
+    const W = api.W, H = api.H, u = api.u, st = gcStage(api, 0.6, LOOP);
+    const N = Math.max(1, Math.min(40, Math.round(LIGHTS))), tall = H > W * 1.2;
+    // 밤길을 렌즈로 본 장면: 번호 순서대로 길 왼쪽 가로등 줄 → 오른쪽 낮은 불빛 → 자동차 꼬리등(두 개씩) → 화면 곳곳의 불빛
+    // 자리는 세상 안 자리(옆 X, 높이 Y, 거리 d)로 정하고 원근으로 화면에 옮깁니다 → 카메라가 옆으로 흔들리면 가까운 불빛이 더 움직임
+    const vp = [W * (tall ? 0.56 : 0.6), H * (tall ? 0.46 : 0.5)], focal = Math.max(W, H) * (tall ? 0.36 : 0.42);
+    const street = Math.min(N, Math.round(N * 0.2)), low = Math.min(N, street + Math.round(N * 0.12)), cars = Math.min(N, low + 2 * Math.round(N * 0.08));
+    const A = Math.max(0, BLUR) * u * 0.28;   // 흐림 배율: 빛망울 반지름 = A × |1/거리 − 1/초점 거리|
+    const sky = st.screen(`
+  #define N 40
+  uniform vec4 uSplit;   // 가로등 끝 번호, 낮은 불빛 끝, 꼬리등 끝, 불빛 수
+  uniform vec4 uView;    // 소실점 x, y(px), 원근 배율(px), 흐림 배율(px)
+  uniform vec4 uCam;     // 카메라 옆 흔들림, 위아래 흔들림, 초점 거리, 깜박임 각도
+  uniform vec4 uGlint;   // 십자 빛을 받을 불빛 번호 넷 (-1 = 없음)
+  uniform float uB;
+  uniform vec3 uTop, uBot, uCream, uNavy, uWine, uPearl;
+  // i번째 불빛 → 화면 자리 x, y(px), 거리, 밝기 (색은 col로)
+  vec4 light(float i, out vec3 col) {
+    float r1 = hash(vec2(i, 1.0)), r2 = hash(vec2(i, 2.0)), r3 = hash(vec2(i, 3.0)), r4 = hash(vec2(i, 4.0)), r5 = hash(vec2(i, 5.0));
+    vec3 w;
+    float b;
+    if (i < uSplit.x) {                 // 길 왼쪽 가로등 줄
+      w = vec3(-1.25, 0.95, 1.5 + i * 9.0 / max(uSplit.x, 1.0) + r1 * 0.5);
+      col = mod(i, 3.0) > 1.5 ? uPearl : uCream;
+      b = 0.75 + 0.25 * r2;
+    } else if (i < uSplit.y) {          // 길 오른쪽 낮은 불빛
+      w = vec3(1.5 + r1 * 0.6, 0.1 + r2 * 0.4, 1.8 + r3 * 9.0);
+      col = r4 < 0.5 ? uNavy : uPearl;
+      b = 0.5 + 0.4 * r5;
+    } else if (i < uSplit.z) {          // 자동차 꼬리등: 두 개가 한 쌍
+      float k = floor((i - uSplit.y) * 0.5), side = mod(i - uSplit.y, 2.0) * 2.0 - 1.0;
+      w = vec3(-0.35 + hash(vec2(k, 12.0)) * 0.6 + side * 0.13, -0.32, 2.4 + hash(vec2(k, 11.0)) * 8.0);
+      col = uWine;
+      b = 0.6;
+    } else {                            // 화면 곳곳의 불빛: 화면 자리를 먼저 고르고 거리에 맞춰 세상 자리로 되돌림
+      float d = 1.4 * pow(10.0, r1);
+      vec2 s = uSize * vec2(0.04 + 0.92 * fract((i - uSplit.z) * 0.618034 + r2 * 0.2), 0.1 + 0.72 * r3);   // 가로로 고르게 퍼지게
+      w = vec3((s.x - uView.x) * d / uView.z, (uView.y - s.y) * d / uView.z, d);
+      float pick = floor(r4 * 6.0);
+      col = pick < 0.5 || pick > 4.5 ? uCream : (pick < 1.5 || pick > 3.5) ? uNavy : pick < 2.5 ? uPearl : uWine;
+      b = (0.35 + 0.5 * r5) * (pick > 2.5 && pick < 3.5 ? 0.75 : 1.0);
+    }
+    float fl = hash(vec2(i, 6.0)) < 0.3 ? 0.12 : 0.03;   // 몇몇 불빛은 조금 더 깜박임
+    b *= 1.0 - fl + fl * sin(uCam.w * 3.0 + hash(vec2(i, 7.0)) * 6.283);
+    return vec4(uView.xy + vec2(w.x - uCam.x, uCam.y - w.y) * uView.z / w.z, w.z, b);
+  }
+  void main() {
+    vec2 p = px(), cen = uSize * 0.5;
+    float diag = length(cen);
+    vec3 acc = vec3(0.0);
+    for (int k = 0; k < N; k++) {
+      float i = float(k);
+      if (i >= uSplit.w) break;
+      vec3 col;
+      vec4 L = light(i, col);
+      float coc = max(uView.w * abs(1.0 / L.z - 1.0 / uCam.z), 1.0);   // 빛망울 반지름(px)
+      vec2 d = p - L.xy;
+      float dl = length(d);
+      if (dl > coc * 1.2 + 30.0) continue;
+      float r = dl / coc;
+      vec2 o = (L.xy - cen) / diag;                              // 화면 가장자리일수록 고양이 눈
+      float r2 = length(d + o * coc * 0.7) / coc;
+      float edge = 1.4 / coc + 0.03;
+      float disc = smoothstep(1.0, 1.0 - edge, r) * smoothstep(1.06, 1.06 - edge, r2);
+      float rim = mix(0.45, 1.25, smoothstep(0.15, 0.98, max(r, r2 * 0.94)));
+      float ring = 1.0 + 0.05 * sin(r * 30.0 + L.w * 7.0) * smoothstep(8.0, 40.0, coc);
+      float level = pow(2.4 / (coc + 1.4), 0.7) * 2.0;           // 큰 빛망울일수록 옅게 (빛의 양은 같음)
+      float focus = smoothstep(6.0, 1.2, coc);
+      float pin = exp(-dl * dl / 1.6) * 1.8 + exp(-dl / 5.0) * 0.12;
+      float g = (abs(i - uGlint.x) < 0.5 || abs(i - uGlint.y) < 0.5 || abs(i - uGlint.z) < 0.5 || abs(i - uGlint.w) < 0.5) ? 1.0 : 0.0;
+      float cross = (exp(-abs(d.y) * 1.3) * exp(-abs(d.x) / 9.0) + exp(-abs(d.x) * 1.3) * exp(-abs(d.y) / 9.0)) * 0.5 * g;
+      acc += col * L.w * (disc * rim * ring * level * (1.0 - focus * 0.6) + (pin + cross) * focus);
+    }
+    vec3 light = vec3(1.0) - exp(-acc * 1.15 * uB);
+    if (uClear > 0.5) { gl_FragColor = vec4(light, clamp(max(light.r, max(light.g, light.b)), 0.0, 1.0)); return; }
+    float v = p.y / uSize.y;
+    vec3 bg = mix(uTop, uBot, smoothstep(0.0, 1.0, v));
+    bg *= 1.0 - 0.35 * smoothstep(0.45, 1.1, length((p - cen) / diag));
+    gl_FragColor = vec4(bg + light * (1.0 - bg) + dither(), 1.0);
+  }`);
+    sky.set('uTop', gcRGB(api.bg).map(v => v * 0.55));
+    sky.set('uBot', gcMix(api.bg, api.accent, 0.45));
+    sky.set('uCream', gcMix(api.tone(1), '#ffffff', 0.12));
+    sky.set('uNavy', gcMix(api.accent, '#ffffff', 0.3));
+    sky.set('uWine', gcMix(api.deep, api.ink, 0.1));   // 꼬리등: 밝게 하면 분홍으로 들뜨므로 버건디 그대로 조금 어둡게
+    sky.set('uPearl', gcMix(api.tone(0), '#ffffff', 0.25));
+    sky.set('uB', Math.max(0, GLOW));
+    sky.set('uSplit', [street, low, cars, N]);
+    sky.set('uView', [vp[0], vp[1], focal, A]);
+    // 마우스 초점·십자 빛을 고르려고 셰이더와 같은 계산을 자바스크립트로 한 번 더 함 (같은 고른 무늬 hash, 32비트 소수로)
+    const f32 = Math.fround, fr = x => f32(x - Math.floor(x)), k1 = f32(0.1031), k2 = f32(33.33);
+    const hash = (x, y) => {
+      const a = fr(f32(x * k1)), b = fr(f32(y * k1)), d = f32(f32(f32(a * f32(b + k2)) + f32(b * f32(a + k2))) + f32(a * f32(a + k2)));
+      return fr(f32(f32(f32(a + d) + f32(b + d)) * f32(a + d)));
+    };
+    const base = [];
+    for (let i = 0; i < N; i++) {
+      const r1 = hash(i, 1), r2 = hash(i, 2), r3 = hash(i, 3), r5 = hash(i, 5);
+      if (i < street) base.push([-1.25, 0.95, 1.5 + i * 9 / Math.max(street, 1) + r1 * 0.5, 0.75 + 0.25 * r2]);
+      else if (i < low) base.push([1.5 + r1 * 0.6, 0.1 + r2 * 0.4, 1.8 + r3 * 9, 0.5 + 0.4 * r5]);
+      else if (i < cars) { const k = Math.floor((i - low) / 2), side = ((i - low) % 2) * 2 - 1; base.push([-0.35 + hash(k, 12) * 0.6 + side * 0.13, -0.32, 2.4 + hash(k, 11) * 8, 0.6]); }
+      else { const d = 1.4 * Math.pow(10, r1), sx = W * (0.04 + 0.92 * fr((i - cars) * 0.618034 + r2 * 0.2)), sy = H * (0.1 + 0.72 * r3); base.push([(sx - vp[0]) * d / focal, (vp[1] - sy) * d / focal, d, 0.35 + 0.5 * r5]); }
+    }
+    const frame = t => {
+      const tt = ((t % LOOP) + LOOP) % LOOP, ph = Math.PI * 2 * tt / LOOP;
+      // 초점: 가까운 불빛(1.5)과 먼 불빛(12) 사이를 천천히 오가며 양 끝에서 조금 머묾
+      let s = 0.5 - 0.5 * Math.cos(ph);
+      s = s * s * (3 - 2 * s);
+      let f = 1.5 * Math.pow(12 / 1.5, s);
+      const sway = Math.sin(ph) * 0.18, bob = Math.sin(ph * 2) * 0.03;   // 카메라가 살짝 옆·위로 흔들림: 가까운 불빛이 더 움직여 깊이가 보임
+      const pos = base.map(l => [vp[0] + (l[0] - sway) * focal / l[2], vp[1] + (bob - l[1]) * focal / l[2]]);
+      // 마우스: 커서 가까운 불빛의 거리로 초점을 옮김
+      const P = api.pointer({ x: W / 2, y: H / 2, on: 0 });
+      if (P.on > 0.001) {
+        let wsum = 0, lsum = 0;
+        base.forEach((l, i) => { const q = 1 / (Math.pow(Math.hypot(pos[i][0] - P.x, pos[i][1] - P.y) / u, 2) + 0.002); wsum += q; lsum += q * Math.log(l[2]); });
+        f = Math.exp(Math.log(f) + (lsum / wsum - Math.log(f)) * P.on);
+      }
+      // 초점이 맞은 불빛 중 가장 밝은 넷만 십자 빛
+      const glint = base.map((l, i) => i).filter(i => A * Math.abs(1 / base[i][2] - 1 / f) < 2.5).sort((a, b) => base[b][3] - base[a][3]).slice(0, 4);
+      while (glint.length < 4) glint.push(-1);
+      sky.set('uCam', [sway, bob, f, ph]);
+      sky.set('uGlint', glint);
+      st.begin();
+      sky.draw();
+    };
+    frame.dispose = st.dispose;
+    return frame;
+  }
+
+  // ③ 공통 엔진: 고칠 필요 없습니다
+  function qmEngine(root, CFG, motion) {
+    // 색 8개: 가장 밝은 색 → 가장 진한 색. [0] 흰 판·밝은 글자, [1]~[4] 연한 색에서 중간 색, [5] 포인트 색, [6] 둘째 포인트 색, [7] 글자색
+    // 바꾸려면 CONFIG에 colors: ['#...', ...] 를 같은 순서로 넣으면 됩니다. 비워 두면 흰색·네이비 계열이 쓰입니다
+    const COLORS = CFG.colors || ['#ffffff', '#e8ecf3', '#cfd7e6', '#9aa8c4', '#5c7099', '#1f3460', '#6e1a2f', '#15171c'];
+    // 매번 같은 순서가 나오는 난수 (같은 seed면 같은 결과)
+    const rand = seed => () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296;
+    // 샘플 그림: CONFIG.images가 비어 있을 때 쓰입니다. 어느 카드에 어떤 그림이 갈지는 열 때마다 섞입니다
+    const dice = rand(CFG.seed || Math.floor(Math.random() * 1e9) + 1);
+    const shift = Math.floor(dice() * 16);
+    // 내 이미지: 칸마다 하나씩(빈 칸은 null → 그 칸은 샘플 그림). 칸보다 장면의 그림 자리가 많으면 돌아가며 씀
+    const IMGS = (CFG.images || []).slice();
+    const NIMG = IMGS.some(Boolean) ? IMGS.length : 0;
+    const used = new Set(), usedArt = new Set();     // 장면이 몇 번째 그림까지 쓰는지 (사이트가 사진 칸 수를 정할 때 읽음)
+    const FONT = '"Pretendard Variable","Pretendard","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif';
+    // 색의 밝기 (0 = 검정, 255 = 흰색). #rrggbb 꼴이 아니면 검정으로 봅니다
+    // 투명 배경 위에 다른 배경을 깔 때(CONFIG.under = 그 배경의 대표 색)는 그 색을 바탕으로 보고 글자색을 고릅니다
+    const light = color => color === 'transparent' && /^#[0-9a-f]{6}$/i.test(CFG.under || '') ? light(CFG.under) : /^#[0-9a-f]{6}$/i.test(color) ? (parseInt(color.slice(1, 3), 16) * 299 + parseInt(color.slice(3, 5), 16) * 587 + parseInt(color.slice(5, 7), 16) * 114) / 1000 : 0;
+    const bright = light(CFG.bg);
+    const still = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let frame = null, time = CFG.startAt || (still ? 4 : 0), last = 0, raf = 0, timer = 0, size = '';
+    let playing = false, seen = true, want = CFG.autoplay !== false && !still, drew = false;
+    // 랜딩페이지용: 실제 마우스·스크롤에 반응합니다 (CONFIG.live). true = 페이지에 붙여 쓸 때, 'try' = 미리보기 창(마우스가 없으면 연출대로)
+    const LIVE = CFG.live === true || CFG.live === 'try', TRY = CFG.live === 'try';
+    const live = { x: 0, y: 0, tx: 0, ty: 0, over: 0, on: false, down: 0, press: false, s: 0, ts: 0, ready: false };
+  
+    const api = {
+      root: root,
+      bg: CFG.bg,
+      clear: CFG.bg === 'transparent',              // 투명 배경으로 그리는 중 (영상 편집기에 얹을 자막 등). 이때는 화면 전체를 칠하는 바탕을 그리지 않습니다
+      fg: bright > 150 ? COLORS[7] : COLORS[0],     // 배경 위에 바로 쓰는 글자색
+      ink: COLORS[7],                               // 흰 판 위에 쓰는 글자색
+      colors: COLORS.slice(),                       // 색 8개 그대로 (배경 모션이 그라데이션 재료로 씀)
+      accent: COLORS[5],                            // 포인트 색
+      deep: COLORS[6],                              // 둘째 포인트 색
+      on: color => light(color) > 150 ? COLORS[7] : '#ffffff',   // 그 색 위에 올릴 글자색 (밝은 색 위엔 진한 글자, 진한 색 위엔 흰 글자)
+      tone: i => COLORS[1 + (i % 5 + 5) % 5],       // i번째 변주 색 (연한 색 ~ 포인트 색)
+      rand: rand,
+      font: FONT,
+      ko: text => /[\u3131-\u318e\uac00-\ud7a3]/.test(text),   // 한글이 들어 있나 (한글이 든 글줄은 한글 글꼴 하나로 씁니다)
+      count: NIMG,                                  // 넣은 이미지 칸 수 (0이면 샘플)
+      words: CFG.words || [],                       // 넣은 낱말 (글자 모션에서 사용, 비면 기본 낱말)
+      live: LIVE && !TRY,                           // 실제 페이지에서 마우스·스크롤에 반응하는 중 (미리보기 칸·영상 저장 때는 false)
+      // 발표(모션 PPT)에서 '다음 효과'를 누른 단계 { step, at }: 발표기가 채워 줌. 없으면 null (미리보기·영상은 시간표대로)
+      cue: CFG.cue || null,
+      page: CFG.page || 0,                          // 모션 PPT에서 몇 번째 장인지 (발표기가 채워 줌, 없으면 0)
+      // 마우스 자리 { x, y: 무대 안의 px, down: 누름 0~1, on: 마우스가 와 있는 정도 0~1, fake: 연출용 가짜 커서를 보일 정도 0~1 }
+      // demo: 미리보기·영상 저장 때 쓸 연출 자리 { x, y, down, on } (t로 계산해서 넘김). 실제 페이지에서는 진짜 마우스를 따라갑니다
+      pointer(demo) {
+        const d = Object.assign({ x: api.W / 2, y: api.H / 2, down: 0, on: 1 }, demo || {});
+        if (!LIVE) return { x: d.x, y: d.y, down: d.down, on: d.on, fake: 1 };
+        if (!live.ready) return TRY ? { x: d.x, y: d.y, down: d.down, on: d.on, fake: 1 } : { x: d.x, y: d.y, down: 0, on: 0, fake: 0 };
+        const k = TRY ? live.over : 1, mix = (a, b) => a + (b - a) * k;
+        return { x: mix(d.x, live.x), y: mix(d.y, live.y), down: mix(d.down, live.down), on: TRY ? mix(d.on, live.over) : live.over, fake: 1 - k };
+      },
+      // 스크롤 진행 0~1. 미리보기·영상 저장 때는 demo(t로 계산한 값), 실제 페이지에서는 이 상자(또는 CONFIG.track의 칸)가 화면을 지나는 정도
+      scroll: demo => LIVE && !TRY ? live.s : demo,
+      image: i => { used.add(i); if (!NIMG) return null; const u = IMGS[i % NIMG]; if (u) return u; const a = api.art(i, true); return a ? a.url : null; },   // i번째 이미지 주소 (없으면 null, 빈 칸이면 샘플 그림)
+      // i번째 샘플 그림 { cv, url }. 코드에 qmArt가 함께 들어 있을 때만 나옵니다 (plain: 글자 없는 그림만)
+      art: (i, plain) => { drew = true; usedArt.add(i); return typeof qmArt === 'function' ? qmArt(plain ? i : i + shift, plain) : null; },
+      // i번째 그림을 CSS background 값으로: 내 이미지가 있으면 이미지, 없으면 샘플 그림
+      paint: i => {
+        used.add(i);
+        const u = NIMG ? IMGS[i % NIMG] : null, a = u ? null : api.art(i, NIMG > 0);   // 내 사진 사이의 빈 칸은 글자 없는 샘플 사진으로
+        return u ? `url("${u}") center / cover no-repeat, #1c1c1e` : a ? `url(${a.url}) center / cover no-repeat` : `linear-gradient(145deg, ${COLORS[2]}, ${COLORS[5]})`;
+      },
+      // 숏폼 자막용 미리보기 바탕: 영상 대신 깔아 두는 흐릿한 장면 (내 이미지를 넣으면 그 그림). 투명 배경일 때는 그리지 않고 null을 돌려줍니다
+      footage(dim) {
+        if (api.clear) return null;
+        used.add(0);
+        const el = document.createElement('div'), n = IMGS[0] ? 1 : 0;
+        el.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;filter:brightness(' + (dim == null ? 0.85 : dim) + ');background:' + (n ? `url("${IMGS[0]}") center / cover no-repeat` :
+          'radial-gradient(55% 32% at 28% 26%, rgba(243,237,226,.5), rgba(243,237,226,0) 70%), radial-gradient(45% 30% at 78% 52%, rgba(154,120,110,.45), rgba(154,120,110,0) 70%), ' +
+          'radial-gradient(80% 45% at 50% 108%, rgba(31,52,96,.75), rgba(31,52,96,0) 72%), radial-gradient(40% 25% at 18% 70%, rgba(205,196,184,.28), rgba(205,196,184,0) 70%), linear-gradient(172deg, #4a4f5a, #23262d 60%, #15171c)') + ';';
+        root.appendChild(el);
+        return el;
+      },
+      // 0~1 사이 값을 부드럽게 (천천히 출발, 천천히 도착)
+      ease: x => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); },
+      // 0~1 사이 값을 통통 튀게 (살짝 넘쳤다가 제자리로)
+      spring: x => { x = Math.max(0, Math.min(1, x)) - 1; return 1 + 2.70158 * x * x * x + 1.70158 * x * x; },
+      // 화면 한가운데가 (0,0,0)인 3D 공간. 숫자가 작을수록 원근감이 세집니다
+      space(perspective) {
+        root.style.perspective = perspective ? perspective + 'px' : 'none';
+        return api.group(root, 'left:50%;top:50%;');
+      },
+      // 여러 조각을 한꺼번에 돌리거나 옮길 묶음
+      group(parent, extra) {
+        const el = document.createElement('div');
+        el.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;transform-style:preserve-3d;' + (extra || '');
+        parent.appendChild(el);
+        return el;
+      },
+      // 빈 상자 하나. 상자의 중심이 (0,0)에 놓입니다 (UI 모션에서 사용)
+      box(parent, w, h, css) {
+        const el = document.createElement('div');
+        el.style.cssText = `position:absolute;left:0;top:0;box-sizing:border-box;width:${w}px;height:${h}px;margin:${-h / 2}px 0 0 ${-w / 2}px;font-family:${FONT};` + (css || '');
+        parent.appendChild(el);
+        return el;
+      },
+      // 카드 한 장. 카드의 중심이 (0,0)에 놓입니다 (카드 모션에서 사용)
+      card(parent, i, w, h, twoSided) {
+        const el = api.box(parent, w, h, 'overflow:hidden;'), s = el.style;
+        s.borderRadius = Math.min(w, h) * (CFG.radius || 0) + 'px';
+        s.backfaceVisibility = s.webkitBackfaceVisibility = twoSided ? 'visible' : 'hidden';
+        s.background = api.paint(i);
+        return el;
+      }
+    };
+  
+    function build() {
+      const W = root.clientWidth, H = root.clientHeight;
+      if (!W || !H || size === W + 'x' + H) return;
+      size = W + 'x' + H;
+      if (frame && frame.dispose) frame.dispose();   // WebGL 모션은 다시 만들기 전에 정리
+      root.textContent = '';
+      api.W = W; api.H = H; api.u = Math.min(W, H);
+      if (LIVE && !TRY) { measure(); live.s = live.ts; }
+      frame = motion(api);
+      frame(time);
+      runs(root);
+      if (watch) watch.takeRecords();   // 방금 만든 장면은 위에서 다 봤으니 쌓인 기록은 버림
+    }
+    // 한 글줄 안에 한글과 영문·숫자가 섞였는데 영문 전용 글꼴(Anton·Inter 등)이 앞에 서 있으면,
+    // 그 글줄은 글꼴 목록 뒤쪽의 한글 글꼴로 통째로 씁니다 (영문 글꼴과 한글 글꼴이 한 줄에서 따로 놀지 않게)
+    const LATIN = /^(Anton|Archivo|Instrument Serif|Inter|JetBrains Mono)$/i;
+    function runs(top) {
+      const walk = document.createTreeWalker(top, NodeFilter.SHOW_TEXT), seen = new Set();
+      for (let n = walk.nextNode(); n; n = walk.nextNode()) if (n.parentElement) seen.add(n.parentElement);
+      seen.forEach(el => {
+        let own = '';
+        el.childNodes.forEach(c => { if (c.nodeType === 3) own += c.nodeValue; });
+        if (!/[\u3131-\u318e\uac00-\ud7a3]/.test(own) || !/[A-Za-z0-9]/.test(own)) return;
+        const list = getComputedStyle(el).fontFamily.split(',').map(f => f.trim().replace(/^["']|["']$/g, ''));
+        if (!LATIN.test(list[0])) return;
+        el.style.fontFamily = list.filter(f => !LATIN.test(f)).map(f => /^[a-z-]+$/.test(f) ? f : '"' + f + '"').join(',');
+      });
+    }
+    // 장면이 글자를 바꾸면 바뀐 곳만 다시 봅니다
+    const watch = window.MutationObserver ? new MutationObserver(list => mend(list)) : null;
+    const mend = list => list.forEach(r => { const el = r.target.nodeType === 3 ? r.target.parentElement : r.target; if (el && root.contains(el)) runs(el); });
+    if (watch) watch.observe(root, { childList: true, characterData: true, subtree: true });
+    function tick(now) {
+      raf = requestAnimationFrame(tick);
+      const dt = Math.max(0, Math.min((now - last) / 1000, 0.1));
+      time += dt * CFG.speed;                       // 흐른 시간만큼 (뒤로 가지 않게)
+      if (CFG.once && time > CFG.once) time = CFG.once;   // 한 번만: 화면에 들어오면 한 번 재생하고 이 초의 장면에서 멈춤
+      last = now;
+      if (LIVE) follow(dt);
+      if (frame) frame(time);
+    }
+    // 스크롤 진행: CONFIG.track이 있으면 그 칸(키 큰 칸 안에 이 상자를 position:sticky로 넣은 경우)을 다 내려가는 정도, 없으면 이 상자가 화면 아래에서 위로 지나가는 정도
+    function measure() {
+      const el = CFG.track ? document.querySelector(CFG.track) : root;
+      if (!el) return;
+      const r = el.getBoundingClientRect(), vh = window.innerHeight || 1;
+      live.ts = Math.max(0, Math.min(1, CFG.track ? -r.top / Math.max(1, r.height - vh) : (vh - r.top) / (vh + r.height)));
+    }
+    // 진짜 마우스·스크롤 값을 부드럽게 따라감
+    function follow(dt) {
+      const k = 1 - Math.exp(-dt * 14);
+      live.x += (live.tx - live.x) * k;
+      live.y += (live.ty - live.y) * k;
+      live.over += ((live.on ? 1 : 0) - live.over) * (1 - Math.exp(-dt * 6));
+      live.down += ((live.press ? 1 : 0) - live.down) * (1 - Math.exp(-dt * 18));
+      if (!TRY) { measure(); live.s += (live.ts - live.s) * (1 - Math.exp(-dt * 10)); }
+    }
+    const spot = e => {
+      const r = root.getBoundingClientRect();
+      live.tx = (e.clientX - r.left) * root.clientWidth / (r.width || 1);
+      live.ty = (e.clientY - r.top) * root.clientHeight / (r.height || 1);
+      if (!live.ready) { live.x = live.tx; live.y = live.ty; live.ready = true; }
+    };
+    // 멈춰 있을 때(일시 정지·동작 줄이기 설정)도 마우스에는 바로 반응
+    const poke = () => { if (playing || !frame) return; live.x = live.tx; live.y = live.ty; live.over = live.on ? 1 : 0; live.down = live.press ? 1 : 0; frame(time); };
+    const hands = {
+      pointerenter: e => { spot(e); live.on = true; poke(); },
+      pointermove: e => { spot(e); live.on = true; poke(); },
+      pointerleave: () => { live.on = false; live.press = false; poke(); },
+      pointerdown: e => { spot(e); live.on = live.press = true; poke(); },
+      pointerup: () => { live.press = false; poke(); }
+    };
+    if (LIVE) Object.keys(hands).forEach(k => root.addEventListener(k, hands[k]));
+    // 화면에 보일 때만 움직입니다
+    function sync() {
+      const on = want && seen;
+      if (on && !playing) { playing = true; last = performance.now(); raf = requestAnimationFrame(tick); }
+      if (!on && playing) { playing = false; cancelAnimationFrame(raf); }
+    }
+  
+    Object.assign(root.style, { position: 'relative', overflow: 'hidden', background: CFG.bg, aspectRatio: CFG.ratio });
+    build();
+    const ro = new ResizeObserver(() => { clearTimeout(timer); timer = setTimeout(build, 100); });
+    const io = new IntersectionObserver(e => { seen = e[e.length - 1].isIntersecting; sync(); });
+    // 웹폰트로 그리는 모션은 폰트가 도착하면 크기를 다시 재서 그립니다
+    const refit = () => { if (frame && (frame.fonts || drew)) { size = ''; build(); } };
+    if (document.fonts && document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', refit);
+    ro.observe(root);
+    io.observe(root);
+    sync();
+  
+    return {
+      play() { want = true; sync(); },
+      pause() { want = false; sync(); },
+      restart() { time = 0; if (frame) frame(time); },
+      seek(t) { time = t; if (frame) frame(time); if (watch) mend(watch.takeRecords()); },
+      now() { return time; },                       // 지금 몇 초의 장면인지 (발표기에서 씀)
+      motion() { return frame; },                   // 모션이 돌려준 장면 함수 (frame.steps 같은 정보를 읽을 때)   // t초의 장면으로 건너뜀 (영상으로 한 장씩 찍을 때)
+      slots() { return used.size || usedArt.size; },   // 이 장면이 쓰는 그림 칸 수 (사이트의 '내 사진' 칸)
+      destroy() { want = false; sync(); if (LIVE) Object.keys(hands).forEach(k => root.removeEventListener(k, hands[k])); ro.disconnect(); io.disconnect(); if (watch) watch.disconnect(); clearTimeout(timer); if (document.fonts && document.fonts.removeEventListener) document.fonts.removeEventListener('loadingdone', refit); if (frame && frame.dispose) frame.dispose(); root.textContent = ''; }
+    };
+  }
+
+  qmEngine(document.getElementById('qm-bg-bokeh-night'), CONFIG, bgBokehNight);
+})();
+</script>
+</body>
+</html>
